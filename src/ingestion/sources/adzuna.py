@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
 from config.settings import get_settings
 from src.ingestion.clients import HttpClient
+from src.ingestion.utils import write_json_once
 
 
 class AdzunaIngestor:
@@ -101,17 +102,12 @@ class AdzunaIngestor:
         timestamp_text = timestamp.strftime("%Y%m%dT%H%M%SZ")
         safe_query = self._safe_query_text(query)
 
-        self.raw_data_directory.mkdir(parents=True, exist_ok=True)
-
         output_path = self.raw_data_directory / (
             f"{self.source_name}_{country}_{safe_query}_"
             f"page_{page}_{timestamp_text}.json"
         )
 
-        with output_path.open("w", encoding="utf-8") as raw_file:
-            json.dump(payload, raw_file, ensure_ascii=False, indent=2)
-
-        return output_path
+        return write_json_once(output_path, payload)
 
     def run(
         self,
