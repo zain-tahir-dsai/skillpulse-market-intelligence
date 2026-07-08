@@ -14,6 +14,7 @@ from tenacity import (
 from urllib3.util.retry import Retry
 
 from config.settings import get_settings
+from src.ingestion.logging_config import get_logger
 
 
 class HttpRequestError(Exception):
@@ -28,6 +29,7 @@ class HttpClient:
 
         self.timeout_seconds = settings.request_timeout_seconds
         self.max_retries = settings.max_retries
+        self.logger = get_logger(__name__)
 
         self.session = requests.Session()
         self.session.headers.update(
@@ -49,6 +51,19 @@ class HttpClient:
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
 
+    def _safe_params_for_logging(
+        self,
+        params: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Return request parameters with secrets masked for logs."""
+        safe_params = dict(params or {})
+
+        for secret_key in ("app_id", "app_key", "api_key", "token"):
+            if secret_key in safe_params:
+                safe_params[secret_key] = "***"
+
+        return safe_params
+
     @retry(
         retry=retry_if_exception_type(
             (requests.Timeout, requests.ConnectionError)
@@ -63,9 +78,19 @@ class HttpClient:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Response:
-        """
-        Send a GET request with timeout, retry, and clear error handling.
-        """
+        """Send a GET request with timeout, retry, and structured logs."""
+        self.logger.info(
+            "http_request_started",
+            extra={
+                "extra_fields": {
+                    "event": "http_request_started",
+                    "method": "GET",
+                    "url": url,
+                    "params": self._safe_params_for_logging(params),
+                }
+            },
+        )
+
         try:
             response = self.session.get(
                 url,
@@ -74,13 +99,53 @@ class HttpClient:
                 timeout=self.timeout_seconds,
             )
         except (requests.Timeout, requests.ConnectionError) as error:
+            self.logger.error(
+                "http_request_failed",
+                extra={
+                    "extra_fields": {
+                        "event": "http_request_failed",
+                        "method": "GET",
+                        "url": url,
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                    }
+                },
+                exc_info=True,
+            )
             raise HttpRequestError(
                 f"Network request failed for {url}: {error}"
             ) from error
 
         if response.status_code >= 400:
-            raise HttpRequestError(
+            error = HttpRequestError(
                 f"HTTP {response.status_code} returned from {response.url}"
             )
+
+            self.logger.error(
+                "http_request_failed",
+                extra={
+                    "extra_fields": {
+                        "event": "http_request_failed",
+                        "method": "GET",
+                        "url": url,
+                        "status_code": response.status_code,
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                    }
+                },
+            )
+            raise error
+
+        self.logger.info(
+            "http_request_succeeded",
+            extra={
+                "extra_fields": {
+                    "event": "http_request_succeeded",
+                    "method": "GET",
+                    "url": url,
+                    "status_code": response.status_code,
+                }
+            },
+        )
 
         return response

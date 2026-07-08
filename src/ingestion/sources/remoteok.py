@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from src.ingestion.clients import HttpClient
+from src.ingestion.logging_config import get_logger
 from src.ingestion.utils import write_json_once
 
 
@@ -22,6 +23,7 @@ class RemoteOkIngestor:
         self.base_url = base_url
         self.raw_data_directory = Path(raw_data_directory)
         self.client = client or HttpClient()
+        self.logger = get_logger(__name__)
 
     def fetch(self) -> list[dict[str, Any]]:
         """Fetch the full RemoteOK JSON feed."""
@@ -52,6 +54,18 @@ class RemoteOkIngestor:
     def run(self) -> tuple[Path, int]:
         """Fetch, save, and return the output path and record count."""
         payload = self.fetch()
+
+        self.logger.info(
+            "source_payload_fetched",
+            extra={
+                "extra_fields": {
+                    "event": "source_payload_fetched",
+                    "source": self.source_name,
+                    "payload_record_count": len(payload),
+                }
+            },
+        )
+
         output_path = self.save_raw_payload(payload)
 
         # RemoteOK can include one metadata record before job records.
@@ -59,6 +73,18 @@ class RemoteOkIngestor:
             1
             for record in payload
             if isinstance(record, dict) and "position" in record
+        )
+
+        self.logger.info(
+            "source_ingestion_completed",
+            extra={
+                "extra_fields": {
+                    "event": "source_ingestion_completed",
+                    "source": self.source_name,
+                    "job_record_count": job_count,
+                    "raw_file": output_path.as_posix(),
+                }
+            },
         )
 
         return output_path, job_count

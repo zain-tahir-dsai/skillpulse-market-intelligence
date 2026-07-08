@@ -1,44 +1,46 @@
+from unittest.mock import Mock
+
 import pytest
 import requests
-import responses
 
 from src.ingestion.clients.http_client import HttpClient, HttpRequestError
 
 
-@responses.activate
-def test_get_returns_successful_response() -> None:
+def test_get_returns_successful_response(monkeypatch) -> None:
     client = HttpClient()
 
-    responses.add(
-        responses.GET,
-        "https://example.com/jobs",
-        json={"status": "ok"},
-        status=200,
+    response = Mock()
+    response.status_code = 200
+    response.url = "https://example.com/api"
+
+    monkeypatch.setattr(client.session, "get", Mock(return_value=response))
+
+    result = client.get("https://example.com/api")
+
+    assert result == response
+
+
+def test_get_raises_error_for_http_failure(monkeypatch) -> None:
+    client = HttpClient()
+
+    response = Mock()
+    response.status_code = 500
+    response.url = "https://example.com/api"
+
+    monkeypatch.setattr(client.session, "get", Mock(return_value=response))
+
+    with pytest.raises(HttpRequestError, match="HTTP 500"):
+        client.get("https://example.com/api")
+
+
+def test_get_raises_error_for_connection_failure(monkeypatch) -> None:
+    client = HttpClient()
+
+    monkeypatch.setattr(
+        client.session,
+        "get",
+        Mock(side_effect=requests.ConnectionError("Connection refused")),
     )
-
-    response = client.get("https://example.com/jobs")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-
-
-@responses.activate
-def test_get_raises_error_for_http_failure() -> None:
-    client = HttpClient()
-
-    responses.add(
-        responses.GET,
-        "https://example.com/jobs",
-        json={"error": "not found"},
-        status=404,
-    )
-
-    with pytest.raises(HttpRequestError, match="HTTP 404"):
-        client.get("https://example.com/jobs")
-
-
-def test_get_raises_error_for_connection_failure() -> None:
-    client = HttpClient()
 
     with pytest.raises(HttpRequestError, match="Network request failed"):
-        client.get("https://unreachable.example.com")
+        client.get("https://example.com/api")

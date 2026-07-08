@@ -7,6 +7,7 @@ from typing import Any
 
 from config.settings import get_settings
 from src.ingestion.clients import HttpClient
+from src.ingestion.logging_config import get_logger
 from src.ingestion.utils import write_json_once
 
 
@@ -32,6 +33,7 @@ class AdzunaIngestor:
         self.default_page_size = default_page_size
         self.max_pages_per_run = max_pages_per_run
         self.client = client or HttpClient()
+        self.logger = get_logger(__name__)
 
         self.app_id = settings.adzuna_app_id
         self.app_key = settings.adzuna_app_key
@@ -139,6 +141,20 @@ class AdzunaIngestor:
 
             results = payload["results"]
 
+            self.logger.info(
+                "source_page_fetched",
+                extra={
+                    "extra_fields": {
+                        "event": "source_page_fetched",
+                        "source": self.source_name,
+                        "query": query,
+                        "country": selected_country,
+                        "page": page,
+                        "page_record_count": len(results),
+                    }
+                },
+            )
+
             if not results:
                 break
 
@@ -154,5 +170,19 @@ class AdzunaIngestor:
 
             if len(results) < (page_size or self.default_page_size):
                 break
+
+        self.logger.info(
+            "source_ingestion_completed",
+            extra={
+                "extra_fields": {
+                    "event": "source_ingestion_completed",
+                    "source": self.source_name,
+                    "query": query,
+                    "country": selected_country,
+                    "pages_saved": len(saved_paths),
+                    "job_record_count": total_records,
+                }
+            },
+        )
 
         return saved_paths, total_records
