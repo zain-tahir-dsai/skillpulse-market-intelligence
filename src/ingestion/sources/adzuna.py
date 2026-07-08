@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import get_settings
+from config.source_config import load_source_config
 from src.ingestion.clients import HttpClient
 from src.ingestion.logging_config import get_logger
-from src.ingestion.utils import write_json_once
+from src.ingestion.utils import write_json_with_fingerprint
 
 
 class AdzunaIngestor:
@@ -18,25 +19,40 @@ class AdzunaIngestor:
 
     def __init__(
         self,
-        base_url: str = "https://api.adzuna.com/v1/api/jobs",
+        base_url: str | None = None,
         raw_data_directory: str = "data/raw/adzuna",
-        default_country: str = "gb",
-        default_page_size: int = 50,
-        max_pages_per_run: int = 5,
+        default_country: str | None = None,
+        default_page_size: int | None = None,
+        max_pages_per_run: int | None = None,
         client: HttpClient | None = None,
     ) -> None:
         settings = get_settings()
+        source_config = load_source_config().adzuna
 
-        self.base_url = base_url.rstrip("/")
+        if not source_config.enabled:
+            raise ValueError(
+                "Adzuna ingestion is disabled in config/sources.yaml."
+            )
+
+        self.base_url = (base_url or source_config.base_url).rstrip("/")
         self.raw_data_directory = Path(raw_data_directory)
-        self.default_country = default_country
-        self.default_page_size = default_page_size
-        self.max_pages_per_run = max_pages_per_run
+        self.default_country = (
+            default_country or source_config.default_country
+        )
+        self.default_page_size = (
+            default_page_size or source_config.default_page_size
+        )
+        self.max_pages_per_run = (
+            max_pages_per_run or source_config.max_pages_per_run
+        )
         self.client = client or HttpClient()
         self.logger = get_logger(__name__)
 
         self.app_id = settings.adzuna_app_id
         self.app_key = settings.adzuna_app_key
+
+        self.last_payload_fingerprint: str | None = None
+        self.last_created_new_raw_file: bool | None = None
 
     def _build_url(self, country: str, page: int) -> str:
         return f"{self.base_url}/{country}/search/{page}"
@@ -84,10 +100,28 @@ class AdzunaIngestor:
             raise ValueError("Adzuna response must be a JSON object.")
 
         if "results" not in payload:
-            raise ValueError("Adzuna response is missing the 'results' field.")
+            raise ValueError(
+                "Adzuna response is missing the 'results' field."
+            )
 
         if not isinstance(payload["results"], list):
-            raise ValueError("Adzuna 'results' field must be a JSON list.")
+            raise ValueError(
+                "Adzuna 'results' field must be a JSON list."
+            )
+
+        self.logger.info(
+            "source_page_fetched",
+            extra={
+                "extra_fields": {
+                    "event": "source_page_fetched",
+                    "source": self.source_name,
+                    "query": query,
+                    "country": selected_country,
+                    "page": page,
+                    "page_record_count": len(payload["results"]),
+                }
+            },
+        )
 
         return payload
 
@@ -109,7 +143,16 @@ class AdzunaIngestor:
             f"page_{page}_{timestamp_text}.json"
         )
 
-        return write_json_once(output_path, payload)
+        (
+            saved_path,
+            payload_fingerprint,
+            created_new_raw_file,
+        ) = write_json_with_fingerprint(output_path, payload)
+
+        self.last_payload_fingerprint = payload_fingerprint
+        self.last_created_new_raw_file = created_new_raw_file
+
+        return saved_path
 
     def run(
         self,
@@ -119,11 +162,7 @@ class AdzunaIngestor:
         max_pages: int | None = None,
         category: str | None = None,
     ) -> tuple[list[Path], int]:
-        """
-        Fetch Adzuna pages until the configured limit or an empty page.
-
-        Returns saved file paths and the total number of fetched job records.
-        """
+        """Fetch Adzuna pages until the limit or an empty page."""
         selected_country = country or self.default_country
         selected_max_pages = max_pages or self.max_pages_per_run
 
@@ -140,20 +179,6 @@ class AdzunaIngestor:
             )
 
             results = payload["results"]
-
-            self.logger.info(
-                "source_page_fetched",
-                extra={
-                    "extra_fields": {
-                        "event": "source_page_fetched",
-                        "source": self.source_name,
-                        "query": query,
-                        "country": selected_country,
-                        "page": page,
-                        "page_record_count": len(results),
-                    }
-                },
-            )
 
             if not results:
                 break
@@ -181,6 +206,8 @@ class AdzunaIngestor:
                     "country": selected_country,
                     "pages_saved": len(saved_paths),
                     "job_record_count": total_records,
+                    "payload_fingerprint": self.last_payload_fingerprint,
+                    "created_new_raw_file": self.last_created_new_raw_file,
                 }
             },
         )

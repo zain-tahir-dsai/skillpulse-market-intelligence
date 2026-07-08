@@ -7,7 +7,7 @@ from typing import Any
 from config.source_config import load_source_config
 from src.ingestion.clients import HttpClient
 from src.ingestion.logging_config import get_logger
-from src.ingestion.utils import write_json_once
+from src.ingestion.utils import write_json_with_fingerprint
 
 
 class RemoteOkIngestor:
@@ -33,6 +33,9 @@ class RemoteOkIngestor:
         self.client = client or HttpClient()
         self.logger = get_logger(__name__)
 
+        self.last_payload_fingerprint: str | None = None
+        self.last_created_new_raw_file: bool | None = None
+
     def fetch(self) -> list[dict[str, Any]]:
         """Fetch the full RemoteOK JSON feed."""
         response = self.client.get(self.base_url)
@@ -57,10 +60,19 @@ class RemoteOkIngestor:
             / f"{self.source_name}_{timestamp_text}.json"
         )
 
-        return write_json_once(output_path, payload)
+        (
+            saved_path,
+            payload_fingerprint,
+            created_new_raw_file,
+        ) = write_json_with_fingerprint(output_path, payload)
+
+        self.last_payload_fingerprint = payload_fingerprint
+        self.last_created_new_raw_file = created_new_raw_file
+
+        return saved_path
 
     def run(self) -> tuple[Path, int]:
-        """Fetch, save, and return the output path and record count."""
+        """Fetch, save, and return the output path and job record count."""
         payload = self.fetch()
 
         self.logger.info(
@@ -76,7 +88,6 @@ class RemoteOkIngestor:
 
         output_path = self.save_raw_payload(payload)
 
-        # RemoteOK can include one metadata record before job records.
         job_count = sum(
             1
             for record in payload
@@ -91,6 +102,8 @@ class RemoteOkIngestor:
                     "source": self.source_name,
                     "job_record_count": job_count,
                     "raw_file": output_path.as_posix(),
+                    "payload_fingerprint": self.last_payload_fingerprint,
+                    "created_new_raw_file": self.last_created_new_raw_file,
                 }
             },
         )

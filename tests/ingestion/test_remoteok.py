@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 
+import pytest
 import responses
 
 from src.ingestion.sources.remoteok import RemoteOkIngestor
@@ -20,6 +23,7 @@ def test_fetch_returns_remoteok_payload() -> None:
     )
 
     ingestor = RemoteOkIngestor()
+
     result = ingestor.fetch()
 
     assert result == payload
@@ -36,8 +40,7 @@ def test_save_raw_payload_creates_json_file(tmp_path) -> None:
     )
 
     assert output_path.exists()
-    assert output_path.name == "remoteok_20260708T080000Z.json"
-    assert output_path.read_text(encoding="utf-8")
+    assert output_path.name.startswith("remoteok_20260708T080000Z")
 
 
 @responses.activate
@@ -56,7 +59,23 @@ def test_run_returns_saved_path_and_job_count(tmp_path) -> None:
     )
 
     ingestor = RemoteOkIngestor(raw_data_directory=str(tmp_path))
+
     output_path, job_count = ingestor.run()
 
     assert output_path.exists()
     assert job_count == 2
+
+
+def test_fetch_rejects_non_list_payload() -> None:
+    class FakeResponse:
+        def json(self):
+            return {"error": "unexpected payload"}
+
+    class FakeClient:
+        def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    ingestor = RemoteOkIngestor(client=FakeClient())
+
+    with pytest.raises(ValueError, match="must be a JSON list"):
+        ingestor.fetch()

@@ -1,8 +1,17 @@
-version: "3.9"
 services:
-  app:
-    image: python:3.11-slim
-    working_dir: /app
+  ingestion:
+    build:
+      context: .
+      dockerfile: docker/ingestion/Dockerfile
+    env_file:
+      - .env
     volumes:
-      - .:/app
-    command: sleep infinity
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: [
+      "python",
+      "-m",
+      "src.ingestion.run_ingestion",
+      "--source",
+      "remoteok"
+    ]

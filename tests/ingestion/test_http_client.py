@@ -1,46 +1,74 @@
-from unittest.mock import Mock
+from __future__ import annotations
 
-import pytest
 import requests
+import responses
 
 from src.ingestion.clients.http_client import HttpClient, HttpRequestError
 
 
-def test_get_returns_successful_response(monkeypatch) -> None:
+@responses.activate
+def test_get_returns_successful_response() -> None:
+    responses.add(
+        responses.GET,
+        "https://example.com/jobs",
+        json={"status": "ok"},
+        status=200,
+    )
+
     client = HttpClient()
 
-    response = Mock()
-    response.status_code = 200
-    response.url = "https://example.com/api"
+    response = client.get("https://example.com/jobs")
 
-    monkeypatch.setattr(client.session, "get", Mock(return_value=response))
-
-    result = client.get("https://example.com/api")
-
-    assert result == response
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
 
 
-def test_get_raises_error_for_http_failure(monkeypatch) -> None:
+@responses.activate
+def test_get_raises_error_for_http_failure() -> None:
+    responses.add(
+        responses.GET,
+        "https://example.com/jobs",
+        json={"error": "not found"},
+        status=404,
+    )
+
     client = HttpClient()
 
-    response = Mock()
-    response.status_code = 500
-    response.url = "https://example.com/api"
-
-    monkeypatch.setattr(client.session, "get", Mock(return_value=response))
-
-    with pytest.raises(HttpRequestError, match="HTTP 500"):
-        client.get("https://example.com/api")
+    try:
+        client.get("https://example.com/jobs")
+    except HttpRequestError as error:
+        assert "HTTP 404" in str(error)
+    else:
+        raise AssertionError("HttpRequestError was not raised.")
 
 
 def test_get_raises_error_for_connection_failure(monkeypatch) -> None:
     client = HttpClient()
 
-    monkeypatch.setattr(
-        client.session,
-        "get",
-        Mock(side_effect=requests.ConnectionError("Connection refused")),
+    def raise_connection_error(*args, **kwargs):
+        raise requests.ConnectionError("network unavailable")
+
+    monkeypatch.setattr(client.session, "get", raise_connection_error)
+
+    try:
+        client.get("https://example.com/jobs")
+    except HttpRequestError as error:
+        assert "Network request failed" in str(error)
+    else:
+        raise AssertionError("HttpRequestError was not raised.")
+
+
+def test_safe_params_for_logging_masks_secrets() -> None:
+    client = HttpClient()
+
+    safe_params = client._safe_params_for_logging(
+        {
+            "app_id": "real-app-id",
+            "app_key": "real-app-key",
+            "what": "data engineer",
+        }
     )
 
-    with pytest.raises(HttpRequestError, match="Network request failed"):
-        client.get("https://example.com/api")
+    assert safe_params["app_id"] == "***"
+    assert safe_params["app_key"] == "***"
+    assert safe_params["what"] == "data engineer"

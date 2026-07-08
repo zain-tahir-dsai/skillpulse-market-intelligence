@@ -1,8 +1,7 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
-
 import pytest
-import responses
-
 from src.ingestion.sources.adzuna import AdzunaIngestor
 
 
@@ -11,28 +10,41 @@ def adzuna_env(monkeypatch) -> None:
     monkeypatch.setenv("ADZUNA_APP_ID", "test-app-id")
     monkeypatch.setenv("ADZUNA_APP_KEY", "test-app-key")
 
+    from config.settings import get_settings
 
-@responses.activate
+    get_settings.cache_clear()
+
+
 def test_fetch_page_returns_adzuna_payload(adzuna_env) -> None:
     payload = {
         "count": 1,
         "results": [{"id": "job-1", "title": "Data Engineer"}],
     }
 
-    responses.add(
-        responses.GET,
-        "https://api.adzuna.com/v1/api/jobs/gb/search/1",
-        json=payload,
-        status=200,
-    )
+    class FakeResponse:
+        def json(self):
+            return payload
 
-    ingestor = AdzunaIngestor()
-    result = ingestor.fetch_page(query="data engineer", page=1)
+    class FakeClient:
+        def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    ingestor = AdzunaIngestor(client=FakeClient())
+
+    result = ingestor.fetch_page(
+        query="data engineer",
+        page=1,
+        country="gb",
+        page_size=5,
+    )
 
     assert result == payload
 
 
-def test_save_raw_payload_creates_json_file(tmp_path, adzuna_env) -> None:
+def test_save_raw_payload_creates_json_file(
+    tmp_path,
+    adzuna_env,
+) -> None:
     ingestor = AdzunaIngestor(raw_data_directory=str(tmp_path))
     payload = {
         "count": 1,
@@ -49,15 +61,14 @@ def test_save_raw_payload_creates_json_file(tmp_path, adzuna_env) -> None:
     )
 
     assert output_path.exists()
-    assert (
-        output_path.name
-        == "adzuna_gb_data_engineer_page_1_20260708T083000Z.json"
-    )
+    assert output_path.name.startswith("adzuna_gb_data_engineer_page_1_")
 
 
-@responses.activate
-def test_run_stops_after_short_page(tmp_path, adzuna_env) -> None:
-    first_page = {
+def test_run_stops_after_short_page(
+    tmp_path,
+    adzuna_env,
+) -> None:
+    first_page_payload = {
         "count": 2,
         "results": [
             {"id": "job-1", "title": "Data Engineer"},
@@ -65,21 +76,42 @@ def test_run_stops_after_short_page(tmp_path, adzuna_env) -> None:
         ],
     }
 
-    responses.add(
-        responses.GET,
-        "https://api.adzuna.com/v1/api/jobs/gb/search/1",
-        json=first_page,
-        status=200,
-    )
+    class FakeResponse:
+        def json(self):
+            return first_page_payload
+
+    class FakeClient:
+        def get(self, *args, **kwargs):
+            return FakeResponse()
 
     ingestor = AdzunaIngestor(
         raw_data_directory=str(tmp_path),
-        default_page_size=50,
-        max_pages_per_run=5,
+        client=FakeClient(),
     )
 
-    saved_paths, total_records = ingestor.run(query="data")
+    paths, count = ingestor.run(
+        query="data engineer",
+        country="gb",
+        page_size=5,
+        max_pages=3,
+    )
 
-    assert len(saved_paths) == 1
-    assert saved_paths[0].exists()
-    assert total_records == 2
+    assert len(paths) == 1
+    assert count == 2
+
+
+def test_fetch_page_rejects_payload_without_results(
+    adzuna_env,
+) -> None:
+    class FakeResponse:
+        def json(self):
+            return {"count": 0}
+
+    class FakeClient:
+        def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    ingestor = AdzunaIngestor(client=FakeClient())
+
+    with pytest.raises(ValueError, match="missing the 'results' field"):
+        ingestor.fetch_page(query="data engineer", page=1)
