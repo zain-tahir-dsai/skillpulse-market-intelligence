@@ -1,1 +1,10 @@
-sources: []
+adzuna:
+  enabled: true
+  base_url: "https://api.adzuna.com/v1/api/jobs"
+  default_country: "gb"
+  default_page_size: 50
+
+remoteok:
+  enabled: true
+  base_url: "https://remoteok.com/api"
+  default_page_size: 100

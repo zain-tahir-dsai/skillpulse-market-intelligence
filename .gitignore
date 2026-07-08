@@ -1,6 +1,26 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python
 __pycache__/
 *.py[cod]
-*.log
-.env
-.venv/
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+
+# Runtime data and logs
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# IDE and operating system files
+.vscode/
+.DS_Store
+Thumbs.db
