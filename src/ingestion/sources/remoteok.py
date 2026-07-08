@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from config.source_config import load_source_config
 from src.ingestion.clients import HttpClient
 from src.ingestion.logging_config import get_logger
 from src.ingestion.utils import write_json_once
@@ -16,11 +17,18 @@ class RemoteOkIngestor:
 
     def __init__(
         self,
-        base_url: str = "https://remoteok.com/api",
+        base_url: str | None = None,
         raw_data_directory: str = "data/raw/remoteok",
         client: HttpClient | None = None,
     ) -> None:
-        self.base_url = base_url
+        source_config = load_source_config().remoteok
+
+        if not source_config.enabled:
+            raise ValueError(
+                "RemoteOK ingestion is disabled in config/sources.yaml."
+            )
+
+        self.base_url = base_url or source_config.base_url
         self.raw_data_directory = Path(raw_data_directory)
         self.client = client or HttpClient()
         self.logger = get_logger(__name__)
