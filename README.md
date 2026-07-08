@@ -1,2 +1,3 @@
-# skillpulse-market-intelligence
-A production-style data engineering platform that ingests job postings, extracts skill-demand signals, and serves labor-market analytics.
+# SkillPulse Labor Market Intelligence
+
+This project provides a scaffold for labor market intelligence ingestion pipelines.

@@ -1,0 +1,9 @@
+[project]
+name = "skillpulse-labor-market-intelligence"
+version = "0.1.0"
+description = "Labor market intelligence ingestion scaffold"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
