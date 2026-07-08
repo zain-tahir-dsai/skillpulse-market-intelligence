@@ -3,8 +3,11 @@ adzuna:
   base_url: "https://api.adzuna.com/v1/api/jobs"
   default_country: "gb"
   default_page_size: 50
+  max_pages_per_run: 5
+  raw_data_directory: "data/raw/adzuna"
 
 remoteok:
   enabled: true
   base_url: "https://remoteok.com/api"
   default_page_size: 100
+  raw_data_directory: "data/raw/remoteok"
