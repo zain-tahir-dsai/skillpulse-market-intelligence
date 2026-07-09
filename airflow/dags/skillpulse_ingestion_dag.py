@@ -103,19 +103,24 @@ with DAG(
 
         if result["status"] != "success":
             raise AirflowFailException(
-                f"RemoteOK ingestion failed: "
+                "RemoteOK ingestion failed: "
                 f"{result.get('error', 'Unknown error')}"
             )
 
+        result["airflow_run_id"] = dag_run.run_id
+        result["airflow_logical_date"] = str(context["logical_date"])
+
         print(
-            f"RemoteOK ingestion completed. "
+            "RemoteOK ingestion completed. "
             f"records={result['record_count']}"
         )
 
         return result
 
     @task(task_id="validate_raw_output")
-    def validate_raw_output(ingestion_result: dict[str, Any]) -> dict[str, Any]:
+    def validate_raw_output(
+        ingestion_result: dict[str, Any],
+    ) -> dict[str, Any]:
         """Confirm that ingestion produced usable raw output."""
         raw_files = ingestion_result.get("raw_files", [])
         record_count = ingestion_result.get("record_count", 0)
@@ -139,7 +144,7 @@ with DAG(
                 )
 
         print(
-            f"Raw output validation passed. "
+            "Raw output validation passed. "
             f"files={len(raw_files)}, records={record_count}"
         )
 
@@ -147,17 +152,21 @@ with DAG(
 
     @task(task_id="report_run_status")
     def report_run_status(validated_result: dict[str, Any]) -> None:
-        """Write final success details into Airflow logs."""
+        """Write the final Airflow-level run summary."""
         print(
             "SkillPulse ingestion DAG completed successfully. "
             f"source={validated_result['source']}, "
             f"records={validated_result['record_count']}, "
-            f"raw_files={validated_result['raw_files']}"
+            f"raw_files={validated_result['raw_files']}, "
+            f"airflow_run_id={validated_result['airflow_run_id']}, "
+            f"airflow_logical_date="
+            f"{validated_result['airflow_logical_date']}"
         )
 
     config_check = validate_config()
     ingestion_result = ingest_remoteok()
     validated_result = validate_raw_output(ingestion_result)
-    report_run_status(validated_result)
+    run_report = report_run_status(validated_result)
 
     config_check >> ingestion_result
+    validated_result >> run_report
