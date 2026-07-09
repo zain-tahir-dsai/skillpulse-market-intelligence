@@ -6,12 +6,14 @@ from typing import Any
 
 from airflow import DAG
 from airflow.decorators import task
+from airflow.operators.python import get_current_context
 from airflow.exceptions import AirflowFailException
 
 from src.ingestion.run_ingestion import run_remoteok_for_airflow
 
 
 DAG_ID = "skillpulse_ingestion"
+DEFAULT_SOURCE = "remoteok"
 TASK_EXECUTION_TIMEOUT = timedelta(minutes=10)
 
 
@@ -48,12 +50,26 @@ with DAG(
     schedule="@daily",
     catchup=False,
     max_active_runs=1,
+    params={"source": DEFAULT_SOURCE},
     tags=["skillpulse", "ingestion", "remoteok"],
 ) as dag:
 
     @task(task_id="validate_config")
-    def validate_config() -> None:
-        """Check that the required project folders exist."""
+    def validate_config() -> dict[str, str]:
+        """Validate run parameters and required project folders."""
+        context = get_current_context()
+        dag_run = context["dag_run"]
+
+        source = DEFAULT_SOURCE
+        if dag_run and dag_run.conf:
+            source = dag_run.conf.get("source", DEFAULT_SOURCE)
+
+        if source != "remoteok":
+            raise AirflowFailException(
+                f"Unsupported source for this DAG: {source}. "
+                "Only remoteok is currently enabled."
+            )
+
         required_directories = [
             Path("/opt/airflow/data/raw"),
             Path("/opt/airflow/project_logs"),
@@ -74,12 +90,32 @@ with DAG(
                 f"Required directories are missing: {missing_text}"
             )
 
-        print("Configuration validation passed.")
+        logical_date = context["logical_date"].isoformat()
+
+        print(
+            "Configuration validation passed. "
+            f"source={source}, logical_date={logical_date}"
+        )
+
+        return {
+            "source": source,
+            "logical_date": logical_date,
+        }
 
     @task(task_id="ingest_remoteok")
-    def ingest_remoteok() -> dict:
-        """Run the existing RemoteOK ingestion function."""
+    def ingest_remoteok(run_parameters: dict[str, str]) -> dict:
+        """Run RemoteOK ingestion and attach Airflow run metadata."""
+        source = run_parameters["source"]
+        logical_date = run_parameters["logical_date"]
+
+        if source != "remoteok":
+            raise AirflowFailException(
+                f"Task ingest_remoteok cannot run source: {source}"
+            )
+
         result = run_remoteok_for_airflow()
+        result["airflow_logical_date"] = logical_date
+        result["airflow_source_parameter"] = source
 
         if result["status"] != "success":
             raise AirflowFailException(
@@ -88,7 +124,8 @@ with DAG(
             )
 
         print(
-            f"RemoteOK ingestion completed. "
+            "RemoteOK ingestion completed. "
+            f"source={source}, logical_date={logical_date}, "
             f"records={result['record_count']}"
         )
 
@@ -96,7 +133,7 @@ with DAG(
 
     @task(task_id="validate_raw_output")
     def validate_raw_output(ingestion_result: dict) -> dict:
-        """Confirm that the ingestion task produced at least one raw file."""
+        """Confirm that ingestion produced at least one raw file."""
         raw_files = ingestion_result.get("raw_files", [])
         record_count = ingestion_result.get("record_count", 0)
 
@@ -119,7 +156,7 @@ with DAG(
                 )
 
         print(
-            f"Raw output validation passed. "
+            "Raw output validation passed. "
             f"files={len(raw_files)}, records={record_count}"
         )
 
@@ -127,17 +164,16 @@ with DAG(
 
     @task(task_id="report_run_status")
     def report_run_status(validated_result: dict) -> None:
-        """Write a final task-level run summary into Airflow logs."""
+        """Write a final run summary into Airflow task logs."""
         print(
             "SkillPulse ingestion DAG completed successfully. "
             f"source={validated_result['source']}, "
+            f"logical_date={validated_result['airflow_logical_date']}, "
             f"records={validated_result['record_count']}, "
             f"raw_files={validated_result['raw_files']}"
         )
 
-    config_check = validate_config()
-    ingestion_result = ingest_remoteok()
+    run_parameters = validate_config()
+    ingestion_result = ingest_remoteok(run_parameters)
     validated_result = validate_raw_output(ingestion_result)
     report_run_status(validated_result)
-
-    config_check >> ingestion_result
