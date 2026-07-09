@@ -61,6 +61,18 @@ def run_remoteok() -> dict[str, Any]:
         }
 
 
+def run_remoteok_for_airflow() -> dict[str, Any]:
+    """Run RemoteOK ingestion and fail the Airflow task on errors."""
+    result = run_remoteok()
+
+    if result["status"] == "failed":
+        raise RuntimeError(
+            f"RemoteOK ingestion failed: {result['error']}"
+        )
+
+    return result
+
+
 def run_adzuna(
     query: str,
     country: str,
