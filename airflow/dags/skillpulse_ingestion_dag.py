@@ -92,11 +92,18 @@ with DAG(
         run_config = dag_run.conf or {}
 
         source = run_config.get("source", "remoteok")
+        simulate_retry = run_config.get("simulate_retry", False)
+        task_instance = context["task_instance"]
 
         if source != "remoteok":
             raise AirflowFailException(
                 "This DAG currently supports only source='remoteok'. "
                 f"Received source='{source}'."
+            )
+
+        if simulate_retry and task_instance.try_number == 1:
+            raise RuntimeError(
+                "Controlled transient failure for retry verification."
             )
 
         result = run_remoteok_for_airflow()
