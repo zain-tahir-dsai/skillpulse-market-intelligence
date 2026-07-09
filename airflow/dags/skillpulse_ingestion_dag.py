@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from airflow import DAG
 from airflow.decorators import task
@@ -11,12 +12,31 @@ from src.ingestion.run_ingestion import run_remoteok_for_airflow
 
 
 DAG_ID = "skillpulse_ingestion"
+TASK_EXECUTION_TIMEOUT = timedelta(minutes=10)
+
+
+def log_task_failure(context: dict[str, Any]) -> None:
+    """Write useful task-failure details into the Airflow task log."""
+    task_instance = context["task_instance"]
+    exception = context.get("exception", "Unknown error")
+
+    print(
+        "SkillPulse task failed. "
+        f"dag_id={context['dag'].dag_id}, "
+        f"task_id={task_instance.task_id}, "
+        f"run_id={context['run_id']}, "
+        f"try_number={task_instance.try_number}, "
+        f"exception={exception}"
+    )
+
 
 DEFAULT_ARGS = {
     "owner": "skillpulse",
     "depends_on_past": False,
     "retries": 2,
     "retry_delay": timedelta(minutes=5),
+    "execution_timeout": TASK_EXECUTION_TIMEOUT,
+    "on_failure_callback": log_task_failure,
 }
 
 
@@ -63,7 +83,8 @@ with DAG(
 
         if result["status"] != "success":
             raise AirflowFailException(
-                f"RemoteOK ingestion failed: {result.get('error', 'Unknown error')}"
+                f"RemoteOK ingestion failed: "
+                f"{result.get('error', 'Unknown error')}"
             )
 
         print(
