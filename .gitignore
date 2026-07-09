@@ -5,22 +5,39 @@ venv/
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
 .pytest_cache/
+.mypy_cache/
 .coverage
+.coverage.*
 htmlcov/
 
-# Secrets
+# Environment
 .env
+.env.*
 
-# Runtime data and logs
-data/raw/*
-!data/raw/.gitkeep
-data/processed/*
-!data/processed/.gitkeep
+# Logs
 logs/*
 !logs/.gitkeep
+*.log
 
-# IDE and operating system files
+# Airflow runtime artifacts
+airflow/logs/*
+!airflow/logs/.gitkeep
+
+# Runtime data
+data/raw/*
+!data/raw/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
+
+# IDE
 .vscode/
+.idea/
+
+# OS
 .DS_Store
 Thumbs.db
