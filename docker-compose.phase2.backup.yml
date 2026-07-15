@@ -78,28 +78,5 @@ services:
     volumes: *airflow-common-volumes
     command: scheduler
 
-  skillpulse-postgres:
-    image: postgres:16
-    container_name: skillpulse-postgres
-    restart: unless-stopped
-
-    environment:
-      POSTGRES_DB: skillpulse
-      POSTGRES_USER: skillpulse
-      POSTGRES_PASSWORD: skillpulse
-
-    ports:
-      - "5433:5432"
-
-    volumes:
-      - skillpulse_postgres_data:/var/lib/postgresql/data
-
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U skillpulse -d skillpulse"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 volumes:
   airflow_postgres_data:
-  skillpulse_postgres_data:

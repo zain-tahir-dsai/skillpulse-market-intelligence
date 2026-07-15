@@ -54,6 +54,7 @@ with DAG(
     start_date=datetime(2026, 7, 9),
     schedule="@daily",
     catchup=False,
+    dagrun_timeout=timedelta(minutes=30),
     max_active_runs=1,
     tags=["skillpulse", "ingestion", "remoteok"],
     on_failure_callback=log_task_failure,
@@ -62,6 +63,7 @@ with DAG(
     @task(task_id="validate_config")
     def validate_config() -> None:
         """Check that the required project folders exist."""
+
         required_directories = [
             Path("/opt/airflow/data/raw"),
             Path("/opt/airflow/project_logs"),
@@ -78,6 +80,7 @@ with DAG(
                 directory.as_posix()
                 for directory in missing_directories
             )
+
             raise AirflowFailException(
                 f"Required directories are missing: {missing_text}"
             )
@@ -86,14 +89,16 @@ with DAG(
 
     @task(task_id="ingest_remoteok")
     def ingest_remoteok() -> dict[str, Any]:
-        """Run RemoteOK ingestion using the runtime DAG configuration."""
+        """Run RemoteOK ingestion using runtime DAG configuration."""
+
         context = get_current_context()
         dag_run = context["dag_run"]
         run_config = dag_run.conf or {}
+        task_instance = context["task_instance"]
 
         source = run_config.get("source", "remoteok")
         simulate_retry = run_config.get("simulate_retry", False)
-        task_instance = context["task_instance"]
+        simulate_failure = run_config.get("simulate_failure", False)
 
         if source != "remoteok":
             raise AirflowFailException(
@@ -101,9 +106,17 @@ with DAG(
                 f"Received source='{source}'."
             )
 
+        # Fail only on first attempt to verify retry behaviour.
         if simulate_retry and task_instance.try_number == 1:
             raise RuntimeError(
                 "Controlled transient failure for retry verification."
+            )
+
+        # Fail on every attempt until retries are exhausted.
+        if simulate_failure:
+            raise RuntimeError(
+                "Controlled persistent failure for retry "
+                "exhaustion verification."
             )
 
         result = run_remoteok_for_airflow()
@@ -128,7 +141,8 @@ with DAG(
     def validate_raw_output(
         ingestion_result: dict[str, Any],
     ) -> dict[str, Any]:
-        """Confirm that ingestion produced usable raw output."""
+        """Confirm ingestion produced usable raw output."""
+
         raw_files = ingestion_result.get("raw_files", [])
         record_count = ingestion_result.get("record_count", 0)
 
@@ -159,15 +173,15 @@ with DAG(
 
     @task(task_id="report_run_status")
     def report_run_status(validated_result: dict[str, Any]) -> None:
-        """Write the final Airflow-level run summary."""
+        """Write final Airflow run summary."""
+
         print(
             "SkillPulse ingestion DAG completed successfully. "
             f"source={validated_result['source']}, "
             f"records={validated_result['record_count']}, "
             f"raw_files={validated_result['raw_files']}, "
             f"airflow_run_id={validated_result['airflow_run_id']}, "
-            f"airflow_logical_date="
-            f"{validated_result['airflow_logical_date']}"
+            f"airflow_logical_date={validated_result['airflow_logical_date']}"
         )
 
     config_check = validate_config()
