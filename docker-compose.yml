@@ -14,7 +14,7 @@ services:
         "-m",
         "src.ingestion.run_ingestion",
         "--source",
-        "remoteok"
+        "all"
       ]
 
   airflow-db:

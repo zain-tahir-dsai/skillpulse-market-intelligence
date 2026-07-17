@@ -63,3 +63,43 @@ def test_run_adzuna_returns_success_metadata(monkeypatch) -> None:
     assert result["status"] == "success"
     assert result["record_count"] == 5
     assert result["raw_files"] == ["data/raw/adzuna/example.json"]
+
+
+def test_run_source_routes_to_remoteok(monkeypatch) -> None:
+    monkeypatch.setattr(
+        run_ingestion,
+        "run_remoteok",
+        lambda: {
+            "source": "remoteok",
+            "status": "success",
+            "record_count": 1,
+            "raw_files": ["data/raw/remoteok/example.json"],
+        },
+    )
+
+    result = run_ingestion.run_source("remoteok")
+
+    assert result["source"] == "remoteok"
+
+
+def test_run_source_routes_to_adzuna(monkeypatch) -> None:
+    monkeypatch.setattr(
+        run_ingestion,
+        "run_adzuna",
+        lambda **kwargs: {
+            "source": "adzuna",
+            "status": "success",
+            "record_count": 2,
+            "raw_files": ["data/raw/adzuna/example.json"],
+        },
+    )
+
+    result = run_ingestion.run_source(
+        "adzuna",
+        query="data engineer",
+        country="gb",
+        page_size=10,
+        max_pages=1,
+    )
+
+    assert result["source"] == "adzuna"

@@ -73,6 +73,53 @@ def run_remoteok_for_airflow() -> dict[str, Any]:
     return result
 
 
+def run_adzuna_for_airflow(
+    query: str,
+    country: str,
+    page_size: int,
+    max_pages: int,
+) -> dict[str, Any]:
+    """Run Adzuna ingestion and fail the Airflow task on errors."""
+    result = run_adzuna(
+        query=query,
+        country=country,
+        page_size=page_size,
+        max_pages=max_pages,
+    )
+
+    if result["status"] == "failed":
+        raise RuntimeError(
+            f"Adzuna ingestion failed: {result['error']}"
+        )
+
+    return result
+
+
+def run_source(
+    source: str,
+    *,
+    query: str = "data engineer",
+    country: str = "gb",
+    page_size: int = 10,
+    max_pages: int = 1,
+) -> dict[str, Any]:
+    """Run one configured ingestion source and return its audit metadata."""
+    if source == "remoteok":
+        return run_remoteok()
+
+    if source == "adzuna":
+        return run_adzuna(
+            query=query,
+            country=country,
+            page_size=page_size,
+            max_pages=max_pages,
+        )
+
+    raise ValueError(
+        f"Unsupported source '{source}'. Expected 'remoteok' or 'adzuna'."
+    )
+
+
 def run_adzuna(
     query: str,
     country: str,
@@ -154,11 +201,12 @@ def main() -> None:
     run_results: list[dict[str, Any]] = []
 
     if args.source in ("remoteok", "all"):
-        run_results.append(run_remoteok())
+        run_results.append(run_source("remoteok"))
 
     if args.source in ("adzuna", "all"):
         run_results.append(
-            run_adzuna(
+            run_source(
+                "adzuna",
                 query=args.query,
                 country=args.country,
                 page_size=args.page_size,

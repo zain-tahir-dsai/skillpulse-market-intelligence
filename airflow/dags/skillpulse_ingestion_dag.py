@@ -10,7 +10,7 @@ from airflow.decorators import task
 from airflow.exceptions import AirflowFailException
 from airflow.operators.python import get_current_context
 
-from src.ingestion.run_ingestion import run_remoteok_for_airflow
+from src.ingestion.run_ingestion import run_source
 
 
 DAG_ID = "skillpulse_ingestion"
@@ -21,6 +21,8 @@ DEFAULT_ARGS = {
     "retries": 2,
     "retry_delay": timedelta(minutes=5),
 }
+
+SUPPORTED_SOURCES = {"remoteok", "adzuna"}
 
 
 def log_task_failure(context: dict[str, Any]) -> None:
@@ -49,20 +51,20 @@ def log_task_failure(context: dict[str, Any]) -> None:
 
 with DAG(
     dag_id=DAG_ID,
-    description="Run SkillPulse job-posting ingestion from RemoteOK.",
+    description="Run SkillPulse job-posting ingestion from RemoteOK or Adzuna.",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 7, 9),
     schedule="@daily",
     catchup=False,
     dagrun_timeout=timedelta(minutes=30),
     max_active_runs=1,
-    tags=["skillpulse", "ingestion", "remoteok"],
+    tags=["skillpulse", "ingestion", "remoteok", "adzuna"],
     on_failure_callback=log_task_failure,
 ) as dag:
 
     @task(task_id="validate_config")
-    def validate_config() -> None:
-        """Check that the required project folders exist."""
+    def validate_config() -> dict[str, Any]:
+        """Check required folders and runtime parameters."""
 
         required_directories = [
             Path("/opt/airflow/data/raw"),
@@ -80,31 +82,44 @@ with DAG(
                 directory.as_posix()
                 for directory in missing_directories
             )
-
             raise AirflowFailException(
                 f"Required directories are missing: {missing_text}"
             )
 
-        print("Configuration validation passed.")
-
-    @task(task_id="ingest_remoteok")
-    def ingest_remoteok() -> dict[str, Any]:
-        """Run RemoteOK ingestion using runtime DAG configuration."""
-
         context = get_current_context()
         dag_run = context["dag_run"]
         run_config = dag_run.conf or {}
-        task_instance = context["task_instance"]
 
         source = run_config.get("source", "remoteok")
-        simulate_retry = run_config.get("simulate_retry", False)
-        simulate_failure = run_config.get("simulate_failure", False)
-
-        if source != "remoteok":
+        if source not in SUPPORTED_SOURCES:
             raise AirflowFailException(
-                "This DAG currently supports only source='remoteok'. "
-                f"Received source='{source}'."
+                f"Unsupported source '{source}'. "
+                f"Expected one of: {sorted(SUPPORTED_SOURCES)}"
             )
+
+        print("Configuration validation passed.")
+
+        return {
+            "source": source,
+            "query": run_config.get("query", "data engineer"),
+            "country": run_config.get("country", "gb"),
+            "page_size": int(run_config.get("page_size", 10)),
+            "max_pages": int(run_config.get("max_pages", 1)),
+            "simulate_retry": bool(run_config.get("simulate_retry", False)),
+            "simulate_failure": bool(run_config.get("simulate_failure", False)),
+        }
+
+    @task(task_id="ingest_source")
+    def ingest_source(runtime_config: dict[str, Any]) -> dict[str, Any]:
+        """Run the selected source using runtime DAG configuration."""
+
+        context = get_current_context()
+        dag_run = context["dag_run"]
+        task_instance = context["task_instance"]
+
+        source = runtime_config["source"]
+        simulate_retry = runtime_config["simulate_retry"]
+        simulate_failure = runtime_config["simulate_failure"]
 
         # Fail only on first attempt to verify retry behaviour.
         if simulate_retry and task_instance.try_number == 1:
@@ -119,11 +134,17 @@ with DAG(
                 "exhaustion verification."
             )
 
-        result = run_remoteok_for_airflow()
+        result = run_source(
+            source,
+            query=runtime_config["query"],
+            country=runtime_config["country"],
+            page_size=runtime_config["page_size"],
+            max_pages=runtime_config["max_pages"],
+        )
 
         if result["status"] != "success":
             raise AirflowFailException(
-                "RemoteOK ingestion failed: "
+                f"{source} ingestion failed: "
                 f"{result.get('error', 'Unknown error')}"
             )
 
@@ -131,7 +152,7 @@ with DAG(
         result["airflow_logical_date"] = str(context["logical_date"])
 
         print(
-            "RemoteOK ingestion completed. "
+            f"{source} ingestion completed. "
             f"records={result['record_count']}"
         )
 
@@ -158,7 +179,6 @@ with DAG(
 
         for raw_file in raw_files:
             raw_path = Path(raw_file)
-
             if not raw_path.exists():
                 raise AirflowFailException(
                     f"Expected raw output file does not exist: {raw_file}"
@@ -185,7 +205,7 @@ with DAG(
         )
 
     config_check = validate_config()
-    ingestion_result = ingest_remoteok()
+    ingestion_result = ingest_source(config_check)
     validated_result = validate_raw_output(ingestion_result)
     run_report = report_run_status(validated_result)
 

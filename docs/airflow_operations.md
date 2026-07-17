@@ -6,7 +6,7 @@ Name:
 `skillpulse_ingestion`
 
 Purpose:
-Ingest RemoteOK job postings into the SkillPulse raw data layer.
+Ingest RemoteOK or Adzuna job postings into the SkillPulse raw data layer.
 
 ---
 
@@ -70,7 +70,11 @@ Optional runtime parameters:
 
 ```json
 {
-  "source": "remoteok",
+  "source": "adzuna",
+  "query": "data engineer",
+  "country": "gb",
+  "page_size": 10,
+  "max_pages": 1,
   "simulate_retry": true
 }
 ```
@@ -97,7 +101,7 @@ skillpulse_ingestion \
 ### Validation Checks
 
 - Configuration validation
-- RemoteOK ingestion
+- Source-specific ingestion
 - Raw data validation
 - Final run status reporting
 
