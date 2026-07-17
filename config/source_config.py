@@ -50,7 +50,7 @@ def load_source_config(
             f"Source configuration file not found: {path}"
         )
 
-    with SOURCE_CONFIG_PATH.open("r", encoding="utf-8") as source_file:
+    with path.open("r", encoding="utf-8") as source_file:
         raw_config = yaml.safe_load(source_file) or {}
 
     root = _require_mapping(raw_config, "root")

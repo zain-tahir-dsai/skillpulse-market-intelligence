@@ -14,4 +14,4 @@ COPY config ./config
 
 RUN mkdir -p data/raw logs/ingestion
 
-CMD ["python", "-m", "src.ingestion.run_ingestion", "--source", "remoteok"]
+CMD ["python", "-m", "src.ingestion.run_ingestion", "--source", "all"]

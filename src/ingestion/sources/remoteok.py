@@ -46,6 +46,16 @@ class RemoteOkIngestor:
 
         return payload
 
+    @staticmethod
+    def _is_metadata_record(record: dict[str, Any]) -> bool:
+        """
+        Detect the leading RemoteOK metadata record.
+
+        We keep the raw payload unchanged, but exclude non-job metadata from
+        record counts and downstream run summaries.
+        """
+        return "position" not in record
+
     def save_raw_payload(
         self,
         payload: list[dict[str, Any]],
@@ -91,7 +101,7 @@ class RemoteOkIngestor:
         job_count = sum(
             1
             for record in payload
-            if isinstance(record, dict) and "position" in record
+            if isinstance(record, dict) and not self._is_metadata_record(record)
         )
 
         self.logger.info(

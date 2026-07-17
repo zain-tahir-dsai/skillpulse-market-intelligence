@@ -81,25 +81,25 @@ services:
   skillpulse-postgres:
     image: postgres:16
     container_name: skillpulse-postgres
-    restart: unless-stopped
 
     environment:
-      POSTGRES_DB: skillpulse
-      POSTGRES_USER: skillpulse
-      POSTGRES_PASSWORD: skillpulse
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
     ports:
       - "5433:5432"
 
     volumes:
-      - skillpulse_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U skillpulse -d skillpulse"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
   airflow_postgres_data:
-  skillpulse_postgres_data:
+  postgres_data:

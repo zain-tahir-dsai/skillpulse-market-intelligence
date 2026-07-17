@@ -14,4 +14,4 @@ COPY src ./src
 
 RUN mkdir -p /app/data/raw /app/logs/ingestion
 
-CMD ["python", "-m", "src.ingestion.run_ingestion", "--source", "remoteok"]
+CMD ["python", "-m", "src.ingestion.run_ingestion", "--source", "all"]

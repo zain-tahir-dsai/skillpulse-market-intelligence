@@ -50,6 +50,30 @@ adzuna:
         load_source_config()
 
 
+def test_load_source_config_honors_custom_path(tmp_path) -> None:
+    custom_yaml = """
+remoteok:
+  enabled: false
+  base_url: https://example.com/remoteok
+
+adzuna:
+  enabled: true
+  base_url: https://example.com/adzuna
+  default_country: us
+  default_page_size: 25
+  max_pages_per_run: 2
+"""
+
+    config_path = tmp_path / "custom-sources.yaml"
+    config_path.write_text(custom_yaml, encoding="utf-8")
+
+    config = load_source_config(config_path)
+
+    assert config.remoteok.enabled is False
+    assert config.remoteok.base_url == "https://example.com/remoteok"
+    assert config.adzuna.default_country == "us"
+
+
 def test_remoteok_ingestor_rejects_disabled_source(
     monkeypatch,
     tmp_path,
